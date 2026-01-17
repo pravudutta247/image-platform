@@ -4,71 +4,81 @@ import time
 from botocore.exceptions import ClientError
 
 LOCALSTACK = "http://localhost:4566"
+TABLE_NAME = "images"
+BUCKET = "images"
 
 @pytest.fixture(scope="session", autouse=True)
 def aws_setup():
-    dynamodb = boto3.client("dynamodb", endpoint_url=LOCALSTACK, region_name="us-east-1")
-    s3 = boto3.client("s3", endpoint_url=LOCALSTACK, region_name="us-east-1")
+    dynamodb = boto3.client(
+        "dynamodb",
+        endpoint_url=LOCALSTACK,
+        region_name="us-east-1"
+    )
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=LOCALSTACK,
+        region_name="us-east-1"
+    )
 
-    # Wait for LocalStack to be ready
+    # Wait for LocalStack
     for _ in range(10):
         try:
             dynamodb.list_tables()
             break
-        except:
+        except Exception:
             time.sleep(2)
 
     # Create S3 bucket
     try:
-        s3.create_bucket(Bucket="images")
+        s3.create_bucket(Bucket=BUCKET)
     except ClientError:
         pass
 
-    # Create DynamoDB table
-    tables = dynamodb.list_tables()["TableNames"]
-
-    if "images" not in tables:
+    # Create DynamoDB table if not exists
+    if TABLE_NAME not in dynamodb.list_tables()["TableNames"]:
         dynamodb.create_table(
-            TableName="images",
-            KeySchema=[
-                {"AttributeName": "image_id", "KeyType": "HASH"}
-            ],
+            TableName=TABLE_NAME,
             AttributeDefinitions=[
+                {"AttributeName": "tenant_id", "AttributeType": "S"},
                 {"AttributeName": "image_id", "AttributeType": "S"},
-                {"AttributeName": "user_id", "AttributeType": "S"},
+                {"AttributeName": "gsi_user_pk", "AttributeType": "S"},
+                {"AttributeName": "gsi_tag_pk", "AttributeType": "S"},
                 {"AttributeName": "created_at", "AttributeType": "S"},
-                {"AttributeName": "tag", "AttributeType": "S"}
+            ],
+            KeySchema=[
+                {"AttributeName": "tenant_id", "KeyType": "HASH"},
+                {"AttributeName": "image_id", "KeyType": "RANGE"},
             ],
             GlobalSecondaryIndexes=[
                 {
                     "IndexName": "user-index",
                     "KeySchema": [
-                        {"AttributeName": "user_id", "KeyType": "HASH"},
-                        {"AttributeName": "created_at", "KeyType": "RANGE"}
+                        {"AttributeName": "gsi_user_pk", "KeyType": "HASH"},
+                        {"AttributeName": "created_at", "KeyType": "RANGE"},
                     ],
                     "Projection": {"ProjectionType": "ALL"},
                     "ProvisionedThroughput": {
                         "ReadCapacityUnits": 5,
-                        "WriteCapacityUnits": 5
-                    }
+                        "WriteCapacityUnits": 5,
+                    },
                 },
                 {
                     "IndexName": "tag-index",
                     "KeySchema": [
-                        {"AttributeName": "tag", "KeyType": "HASH"}
+                        {"AttributeName": "gsi_tag_pk", "KeyType": "HASH"},
+                        {"AttributeName": "created_at", "KeyType": "RANGE"},
                     ],
                     "Projection": {"ProjectionType": "ALL"},
                     "ProvisionedThroughput": {
                         "ReadCapacityUnits": 5,
-                        "WriteCapacityUnits": 5
-                    }
-                }
+                        "WriteCapacityUnits": 5,
+                    },
+                },
             ],
             ProvisionedThroughput={
                 "ReadCapacityUnits": 5,
-                "WriteCapacityUnits": 5
-            }
+                "WriteCapacityUnits": 5,
+            },
         )
 
-        # Wait for table to be ACTIVE
-        dynamodb.get_waiter("table_exists").wait(TableName="images")
+        dynamodb.get_waiter("table_exists").wait(TableName=TABLE_NAME)

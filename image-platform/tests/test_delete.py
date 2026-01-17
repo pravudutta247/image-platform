@@ -1,21 +1,35 @@
+import json
 from lambdas.upload_image import handler as upload
 from lambdas.delete_image import handler as delete
 
-def test_delete_image():
+def test_delete_is_idempotent_and_tenant_safe():
     upload_resp = upload({
+        "headers": {"x-tenant-id": "tenantA"},
         "body": {
-            "user_id": "u5",
-            "file": b"img5",
+            "user_id": "user9",
+            "file": b"img9",
             "tag": "cars"
         }
     }, None)
 
-    image_id = upload_resp["body"]["image_id"]
+    image_id = json.loads(upload_resp["body"])["image_id"]
 
-    resp = delete({
+    # First delete
+    resp1 = delete({
+        "headers": {"x-tenant-id": "tenantA"},
         "pathParameters": {
             "image_id": image_id
         }
     }, None)
 
-    assert resp["statusCode"] == 204
+    assert resp1["statusCode"] == 204
+
+    # Second delete (idempotent)
+    resp2 = delete({
+        "headers": {"x-tenant-id": "tenantA"},
+        "pathParameters": {
+            "image_id": image_id
+        }
+    }, None)
+
+    assert resp2["statusCode"] == 204
